@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secure CRUD — Task Manager</title>
+  <meta name="description" content="A production-grade multi-container task manager built with Flask, PostgreSQL, and Nginx — containerized with Docker." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Variables ──────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0a0e1a;
+      --surface:     #111827;
+      --glass:       rgba(255,255,255,0.05);
+      --glass-border:rgba(255,255,255,0.10);
+      --accent:      #6366f1;
+      --accent-glow: rgba(99,102,241,0.35);
+      --accent2:     #8b5cf6;
+      --success:     #10b981;
+      --warning:     #f59e0b;
+      --danger:      #ef4444;
+      --text:        #f1f5f9;
+      --muted:       #64748b;
+      --border:      rgba(255,255,255,0.08);
+      --radius:      14px;
+      --shadow:      0 25px 50px rgba(0,0,0,0.5);
+      --transition:  all 0.25s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated background ───────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 20%, rgba(99,102,241,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 80%, rgba(139,92,246,0.10) 0%, transparent 60%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ────────────────────────────────────────────── */
+    header {
+      position: relative;
+      z-index: 10;
+      padding: 28px 40px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,14,26,0.85);
+      backdrop-filter: blur(20px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .logo h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #e0e7ff, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .logo span {
+      font-size: 0.7rem;
+      font-weight: 400;
+      color: var(--muted);
+      display: block;
+      margin-top: 1px;
+    }
+
+    .header-badges {
+      display: flex;
+      gap: 8px;
+    }
+
+    .badge {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border: 1px solid;
+    }
+
+    .badge-nginx  { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+    .badge-flask  { color: #a78bfa; border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.08); }
+    .badge-pg     { color: #60a5fa; border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.08); }
+
+    /* ── Main layout ───────────────────────────────────────── */
+    main {
+      position: relative;
+      z-index: 5;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ── Stats bar ─────────────────────────────────────────── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      backdrop-filter: blur(12px);
+      transition: var(--transition);
+    }
+
+    .stat-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255,255,255,0.18);
+    }
+
+    .stat-label { font-size: 0.78rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.8px; }
+    .stat-value { font-size: 2rem; font-weight: 800; margin-top: 4px; }
+    .stat-total   { background: linear-gradient(135deg, #e0e7ff, #a5b4fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .stat-pending { color: var(--warning); }
+    .stat-done    { color: var(--success); }
+
+    /* ── Card ──────────────────────────────────────────────── */
+    .card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius);
+      padding: 28px;
+      backdrop-filter: blur(12px);
+      margin-bottom: 24px;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #c7d2fe;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* ── Form ──────────────────────────────────────────────── */
+    .form-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input[type="text"],
+    textarea,
+    select {
+      width: 100%;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      transition: var(--transition);
+      outline: none;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      background: rgba(99,102,241,0.05);
+    }
+
+    textarea { resize: vertical; min-height: 80px; }
+
+    select option { background: #1e293b; }
+
+    /* ── Buttons ───────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 22px;
+      border-radius: 10px;
+      border: none;
+      font-family: inherit;
+      font-size: 0.87rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      box-shadow: 0 4px 15px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px var(--accent-glow);
+    }
+
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+
+    .btn-danger-sm {
+      background: rgba(239,68,68,0.12);
+      color: var(--danger);
+      border: 1px solid rgba(239,68,68,0.25);
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      border-radius: 8px;
+    }
+
+    .btn-danger-sm:hover { background: rgba(239,68,68,0.22); }
+
+    .btn-edit-sm {
+      background: rgba(99,102,241,0.12);
+      color: #818cf8;
+      border: 1px solid rgba(99,102,241,0.25);
+      padding: 6px 14px;
+      font-size: 0.8rem;
+      border-radius: 8px;
+    }
+
+    .btn-edit-sm:hover { background: rgba(99,102,241,0.22); }
+
+    /* ── Task list ─────────────────────────────────────────── */
+    #task-list { display: flex; flex-direction: column; gap: 12px; }
+
+    .task-item {
+      background: rgba(0,0,0,0.28);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      transition: var(--transition);
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .task-item:hover {
+      border-color: rgba(255,255,255,0.14);
+      background: rgba(99,102,241,0.04);
+    }
+
+    .task-info { flex: 1; min-width: 0; }
+    .task-title-text {
+      font-size: 0.97rem;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .task-desc {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    .task-meta {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 8px;
+      opacity: 0.65;
+    }
+
+    .task-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+    /* ── Status chips ──────────────────────────────────────── */
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+
+    .status-chip.pending     { background: rgba(245,158,11,0.15); color: var(--warning); border: 1px solid rgba(245,158,11,0.3); }
+    .status-chip.in-progress { background: rgba(99,102,241,0.15); color: #818cf8;        border: 1px solid rgba(99,102,241,0.3); }
+    .status-chip.completed   { background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
+
+    /* ── Modal ─────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: #141c2e;
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      padding: 32px;
+      width: 100%;
+      max-width: 480px;
+      animation: modalIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.88); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 22px;
+      background: linear-gradient(135deg, #e0e7ff, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .modal-footer {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 22px;
+    }
+
+    /* ── Toast ─────────────────────────────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-size: 0.87rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: toastIn 0.3s ease;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      max-width: 340px;
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .toast-success { background: rgba(16,185,129,0.18); border: 1px solid rgba(16,185,129,0.35); color: #34d399; }
+    .toast-error   { background: rgba(239,68,68,0.18); border: 1px solid rgba(239,68,68,0.35); color: #fc8181; }
+
+    /* ── Empty state ───────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+
+    .empty-state .empty-icon { font-size: 3.5rem; margin-bottom: 16px; opacity: 0.5; }
+    .empty-state p { font-size: 0.95rem; }
+
+    /* ── Loader ────────────────────────────────────────────── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Responsive ────────────────────────────────────────── */
+    @media (max-width: 600px) {
+      header { padding: 18px 20px; }
+      .header-badges { display: none; }
+      .stats-bar { grid-template-columns: 1fr 1fr; }
+      .form-row { grid-template-columns: 1fr; }
+      main { padding: 24px 16px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📋</div>
+      <div>
+        <h1>Secure CRUD</h1>
+        <span>Task Management System</span>
+      </div>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-nginx">Nginx Proxy</span>
+      <span class="badge badge-flask">Flask API</span>
+      <span class="badge badge-pg">PostgreSQL</span>
+    </div>
+  </header>
+
+  <!-- ── Main ───────────────────────────────────────────────── -->
+  <main>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-label">Total Tasks</div>
+        <div class="stat-value stat-total" id="stat-total">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">In Progress</div>
+        <div class="stat-value stat-pending" id="stat-inprogress">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value stat-done" id="stat-done">—</div>
+      </div>
+    </div>
+
+    <!-- Create task card -->
+    <div class="card">
+      <div class="card-title">✦ Create New Task</div>
+      <form id="create-form" class="form-grid">
+        <div>
+          <label for="new-title">Title *</label>
+          <input id="new-title" type="text" placeholder="e.g. Configure Nginx reverse proxy" required />
+        </div>
+        <div>
+          <label for="new-desc">Description</label>
+          <textarea id="new-desc" placeholder="Optional details about this task…"></textarea>
+        </div>
+        <div>
+          <label for="new-status">Status</label>
+          <select id="new-status">
+            <option value="pending">🟡 Pending</option>
+            <option value="in-progress">🔵 In Progress</option>
+            <option value="completed">🟢 Completed</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:4px;">
+          <button type="submit" class="btn btn-primary" id="create-btn">
+            <span>+ Add Task</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Task list card -->
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between;">
+        <span>📂 All Tasks</span>
+        <button class="btn btn-ghost" onclick="loadTasks()" style="padding:6px 14px; font-size:0.78rem;">↻ Refresh</button>
+      </div>
+      <div id="task-list">
+        <div class="empty-state">
+          <div class="empty-icon">⏳</div>
+          <p>Loading tasks…</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ── Edit Modal ──────────────────────────────────────────── -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+      <div class="modal-title">✏️ Edit Task</div>
+      <div class="form-grid">
+        <div>
+          <label for="edit-title">Title *</label>
+          <input id="edit-title" type="text" />
+        </div>
+        <div>
+          <label for="edit-desc">Description</label>
+          <textarea id="edit-desc"></textarea>
+        </div>
+        <div>
+          <label for="edit-status">Status</label>
+          <select id="edit-status">
+            <option value="pending">🟡 Pending</option>
+            <option value="in-progress">🔵 In Progress</option>
+            <option value="completed">🟢 Completed</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" id="save-edit-btn" onclick="saveEdit()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast container ────────────────────────────────────── -->
+  <div id="toast-container"></div>
+
+  <!-- ── Scripts ────────────────────────────────────────────── -->
+  <script>
+    let editingId = null;
+
+    /* ── Toast ─────────────────────────────────────────── */
+    function toast(msg, type = 'success') {
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      el.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span><span>${msg}</span>`;
+      document.getElementById('toast-container').appendChild(el);
+      setTimeout(() => el.remove(), 3500);
+    }
+
+    /* ── Status chip HTML ──────────────────────────────── */
+    function statusChip(status) {
+      const icons = { 'pending': '🟡', 'in-progress': '🔵', 'completed': '🟢' };
+      return `<span class="status-chip ${status}">${icons[status] || '⚪'} ${status}</span>`;
+    }
+
+    /* ── Format date ───────────────────────────────────── */
+    function fmt(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+
+    /* ── Load tasks ────────────────────────────────────── */
+    async function loadTasks() {
+      try {
+        const res  = await fetch('/api/tasks');
+        const data = await res.json();
+        const list = data.tasks || [];
+
+        // Update stats
+        document.getElementById('stat-total').textContent     = list.length;
+        document.getElementById('stat-inprogress').textContent = list.filter(t => t.status === 'in-progress').length;
+        document.getElementById('stat-done').textContent       = list.filter(t => t.status === 'completed').length;
+
+        const container = document.getElementById('task-list');
+        if (list.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-icon">🎯</div>
+              <p>No tasks yet. Create your first one above!</p>
+            </div>`;
+          return;
+        }
+
+        container.innerHTML = list.map(t => `
+          <div class="task-item" id="task-${t.id}">
+            <div class="task-info">
+              <div class="task-title-text">${escHtml(t.title)}</div>
+              ${t.description ? `<div class="task-desc">${escHtml(t.description)}</div>` : ''}
+              <div class="task-meta">
+                ${statusChip(t.status)}
+                &nbsp;·&nbsp; Created ${fmt(t.created_at)}
+                ${t.updated_at !== t.created_at ? `&nbsp;·&nbsp; Updated ${fmt(t.updated_at)}` : ''}
+              </div>
+            </div>
+            <div class="task-actions">
+              <button class="btn btn-edit-sm" onclick="openEdit(${t.id}, '${escAttr(t.title)}', '${escAttr(t.description||'')}', '${t.status}')">Edit</button>
+              <button class="btn btn-danger-sm" onclick="deleteTask(${t.id})">Delete</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        toast('Failed to load tasks', 'error');
+        console.error(err);
+      }
+    }
+
+    /* ── Create ────────────────────────────────────────── */
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn   = document.getElementById('create-btn');
+      const title = document.getElementById('new-title').value.trim();
+      const desc  = document.getElementById('new-desc').value.trim();
+      const stat  = document.getElementById('new-status').value;
+
+      if (!title) return;
+      btn.innerHTML = `<span class="spinner"></span> Adding…`;
+      btn.disabled  = true;
+
+      try {
+        const res = await fetch('/api/tasks', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ title, description: desc, status: stat }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        toast('Task created successfully!');
+        document.getElementById('create-form').reset();
+        await loadTasks();
+      } catch (err) {
+        toast('Failed to create task', 'error');
+        console.error(err);
+      } finally {
+        btn.innerHTML = `<span>+ Add Task</span>`;
+        btn.disabled  = false;
+      }
+    });
+
+    /* ── Edit modal ────────────────────────────────────── */
+    function openEdit(id, title, desc, status) {
+      editingId = id;
+      document.getElementById('edit-title').value  = title;
+      document.getElementById('edit-desc').value   = desc;
+      document.getElementById('edit-status').value = status;
+      document.getElementById('edit-modal').classList.add('active');
+    }
+
+    function closeModal() {
+      document.getElementById('edit-modal').classList.remove('active');
+      editingId = null;
+    }
+
+    document.getElementById('edit-modal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeModal();
+    });
+
+    async function saveEdit() {
+      if (!editingId) return;
+      const btn   = document.getElementById('save-edit-btn');
+      const title = document.getElementById('edit-title').value.trim();
+      const desc  = document.getElementById('edit-desc').value.trim();
+      const stat  = document.getElementById('edit-status').value;
+
+      if (!title) { toast('Title cannot be empty', 'error'); return; }
+      btn.innerHTML = `<span class="spinner"></span> Saving…`;
+      btn.disabled  = true;
+
+      try {
+        const res = await fetch(`/api/tasks/${editingId}`, {
+          method:  'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ title, description: desc, status: stat }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        toast('Task updated!');
+        closeModal();
+        await loadTasks();
+      } catch (err) {
+        toast('Failed to update task', 'error');
+        console.error(err);
+      } finally {
+        btn.innerHTML = `Save Changes`;
+        btn.disabled  = false;
+      }
+    }
+
+    /* ── Delete ────────────────────────────────────────── */
+    async function deleteTask(id) {
+      if (!confirm('Delete this task? This cannot be undone.')) return;
+      try {
+        const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(await res.text());
+        document.getElementById(`task-${id}`)?.remove();
+        toast('Task deleted.');
+        await loadTasks();
+      } catch (err) {
+        toast('Failed to delete task', 'error');
+        console.error(err);
+      }
+    }
+
+    /* ── Sanitisation helpers ──────────────────────────── */
+    function escHtml(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function escAttr(str) {
+      return String(str).replace(/'/g, "\\'").replace(/\n/g, ' ');
+    }
+
+    /* ── Init ──────────────────────────────────────────── */
+    loadTasks();
+  </script>
+</body>
+</html>

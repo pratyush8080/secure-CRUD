@@ -1,0 +1,91 @@
+# ──────────────────────────────────────────────────────────────
+#  docker-compose.yml — Secure CRUD Multi-Container System
+#
+#  Services:
+#    nginx  → Reverse Proxy  (only service exposed to host)
+#    app    → Flask API       (internal only)
+#    db     → PostgreSQL      (internal only)
+#
+#  Network: crud_network (bridge, private)
+#  Volumes: postgres_data (persistent across restarts)
+# ──────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+services:
+
+  # ── Database ─────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: crud_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data  # persistent storage
+    networks:
+      - crud_network
+    # NOTE: No ports exposed to host — internal only
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  # ── Application ───────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: praty1/secure-crud:latest
+    container_name: crud_app
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      SECRET_KEY:   ${SECRET_KEY}
+      FLASK_ENV:    production
+    networks:
+      - crud_network
+    depends_on:
+      db:
+        condition: service_healthy
+    # NOTE: No ports exposed to host — traffic goes through Nginx only
+    healthcheck:
+      test:         ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval:     10s
+      timeout:      5s
+      retries:      5
+      start_period: 30s
+
+  # ── Reverse Proxy ─────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: crud_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"   # ← Only exposed port on the host machine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - crud_network
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test:     ["CMD", "wget", "-qO-", "http://localhost/nginx-health"]
+      interval: 15s
+      timeout:  5s
+      retries:  3
+
+# ── Private network ───────────────────────────────────────────
+networks:
+  crud_network:
+    driver: bridge
+    name: crud_network
+
+# ── Named volume (data persists across docker-compose down/up) ─
+volumes:
+  postgres_data:
+    driver: local
